@@ -1,4 +1,4 @@
-// AuthContext.jsx
+// src/app/providers/AuthContext.jsx
 import { createContext, useContext, useEffect, useState } from "react";
 import { http } from "../lib/http";
 
