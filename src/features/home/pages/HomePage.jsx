@@ -7,7 +7,6 @@ export default function HomePage() {
 
   return (
     <div className="min-h-dvh bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50">
-      {/* Renderiza el chat directamente */}
       <ChatPage user={me} />
     </div>
   );

@@ -1,7 +1,6 @@
 // src/ui/components/Avatar.jsx
 import React, { useMemo } from "react";
 
-// Helpers
 function getInitials(name = "?") {
   const parts = String(name).trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
@@ -27,10 +26,9 @@ const AVATAR_BG = [
 ];
 
 /**
- * Componente Avatar reutilizable
  * @param {string} name - Nombre del usuario para generar iniciales
  * @param {number} size - Tamaño en px (por defecto 36)
- * @param {string} className - Clases extra de Tailwind
+ * @param {string} className - Tailwind
  */
 export default function Avatar({ name, size = 36, className = "" }) {
   const initials = useMemo(() => getInitials(name), [name]);

@@ -1,3 +1,19 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+
+.scroll-smoothy {
+    scrollbar-gutter: stable both-edges;
+    scrollbar-width: thin; /* Firefox */
+    scrollbar-color: rgba(113,113,122,.35) transparent; /* thumb/track */
+}
+.scroll-smoothy::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll-smoothy::-webkit-scrollbar-thumb {
+    background: rgba(113,113,122,.28);
+    border-radius: 9999px;
+}
+.scroll-smoothy:hover::-webkit-scrollbar-thumb {
+    background: rgba(113,113,122,.45);
+}
+.scroll-smoothy::-webkit-scrollbar-track { background: transparent; }
