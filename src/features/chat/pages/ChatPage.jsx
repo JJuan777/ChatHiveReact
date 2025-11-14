@@ -6,6 +6,7 @@ import ChatContainer from "../components/ChatContainer";
 import { useChatSocket } from "../hooks/useChatSocket";
 import { fetchThreads } from "../api/threads";
 import { fetchThreadMessages } from "../api/messages";
+import { resolveDirectThread, sendFirstDirectMessage } from "../api/threads";
 
 export default function ChatPage() {
   const { me, token } = useAuth();
@@ -13,81 +14,186 @@ export default function ChatPage() {
   const [conversations, setConversations] = useState([]);
   const [activeThread, setActiveThread] = useState(null);
 
+  // Historial del hilo (REST)
   const [history, setHistory] = useState([]);
   const [loadingThreads, setLoadingThreads] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
 
+  // Para DMs nuevos (sin hilo todavía)
+  const [pendingDirectUser, setPendingDirectUser] = useState(null);
+
+  // Mensajes en tiempo real (WS)
   const { messages: liveMessages, sendMessage, isReady } = useChatSocket({
     threadId: activeThread?.id,
     token,
     userId: me?.id,
   });
 
+  // Combina historial + live
   const mergedMessages = useMemo(() => {
-    const map = new Map();
-    for (const m of history) map.set(m.id, m);
-    for (const m of liveMessages) map.set(m.id, m);
-    return Array.from(map.values()).sort(
-      (a, b) => new Date(a.created_at) - new Date(b.created_at)
+    if (!activeThread) return [];
+    const base = history || [];
+    const live = liveMessages || [];
+    if (!live.length) return base;
+
+    const byId = new Map();
+    for (const m of base) byId.set(m.id, m);
+    for (const m of live) byId.set(m.id, m);
+    return Array.from(byId.values()).sort(
+      (a, b) => new Date(a.created_at) - new Date(b.created_at),
     );
-  }, [history, liveMessages]);
+  }, [history, liveMessages, activeThread]);
 
+  // Cargar hilos al entrar
   useEffect(() => {
-    let mounted = true;
-    (async () => {
+    let alive = true;
+    const loadThreads = async () => {
+      setLoadingThreads(true);
       try {
-        setLoadingThreads(true);
-        const threads = await fetchThreads();
-        if (!mounted) return;
-        setConversations(threads);
-        if (!activeThread && threads.length) setActiveThread(threads[0]);
+        const data = await fetchThreads();
+        if (!alive) return;
+        setConversations(data || []);
+        if (data?.length && !activeThread) {
+          setActiveThread(data[0]);
+        }
+      } catch (err) {
+        console.error("Error cargando hilos:", err);
       } finally {
-        setLoadingThreads(false);
+        if (alive) setLoadingThreads(false);
       }
-    })();
-    return () => { mounted = false; };
-  }, []);
+    };
+    if (me) loadThreads();
+    return () => {
+      alive = false;
+    };
+  }, [me]);
 
+  // Cargar mensajes del hilo activo
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      if (!activeThread?.id) {
-        setHistory([]);
-        return;
-      }
+    if (!activeThread?.id) {
+      setHistory([]);
+      return;
+    }
+    let alive = true;
+    const loadMessages = async () => {
+      setLoadingMessages(true);
       try {
-        setLoadingMessages(true);
-        const msgs = await fetchThreadMessages(activeThread.id, { page_size: 100 });
-        if (!mounted) return;
-        setHistory(msgs);
-      } catch {
-        setHistory([]);
+        const data = await fetchThreadMessages(activeThread.id);
+        if (!alive) return;
+        setHistory(data?.results || data || []);
+      } catch (err) {
+        console.error("Error cargando mensajes:", err);
       } finally {
-        setLoadingMessages(false);
+        if (alive) setLoadingMessages(false);
       }
-    })();
-    return () => { mounted = false; };
+    };
+    loadMessages();
+    // Al cambiar de hilo, ya no tenemos “pendiente”
+    setPendingDirectUser(null);
+    return () => {
+      alive = false;
+    };
   }, [activeThread?.id]);
 
+  // Cuando eliges una conversación de la lista
+  const handleSelectThread = (threadId) => {
+    const found = conversations.find((t) => t.id === threadId);
+    if (!found) return;
+    setActiveThread(found);
+  };
+
+  // Cuando eliges una persona desde el buscador del sidebar
+  const handleSelectUser = async (user) => {
+    try {
+      // 1) Intentar resolver si YA existe un DM
+      const existing = await resolveDirectThread(user.id);
+
+      if (existing) {
+        // ✅ Ya había hilo, lo usamos
+        setActiveThread(existing);
+
+        // refrescamos lista por si cambió algo
+        setConversations((prev) => {
+          const others = prev.filter((t) => t.id !== existing.id);
+          return [existing, ...others];
+        });
+      } else {
+        // ❌ No existe hilo todavía → guardamos el usuario pendiente
+        setPendingDirectUser(user);
+        setActiveThread(null); // aún no hay hilo
+        setHistory([]);
+      }
+    } catch (err) {
+      console.error("Error al resolver DM directo:", err);
+    }
+  };
+
+  // Enviar mensaje desde el ChatContainer
+  const handleSendMessage = async (text) => {
+    const clean = (text || "").trim();
+    if (!clean) return;
+
+    // Caso 1: estamos iniciando un DM nuevo (no hay hilo aún)
+    if (pendingDirectUser && !activeThread) {
+      try {
+        const clientId = crypto.randomUUID();
+        const { thread, message } = await sendFirstDirectMessage(
+          pendingDirectUser.id,
+          clean,
+          clientId,
+        );
+
+        // seteamos hilo activo ya creado
+        setActiveThread(thread);
+        setPendingDirectUser(null);
+
+        // agregamos el mensaje al historial local
+        setHistory((prev) => [...(prev || []), message]);
+
+        // opcional: refrescar lista de hilos
+        setConversations((prev) => {
+          const others = prev.filter((t) => t.id !== thread.id);
+          return [thread, ...others];
+        });
+      } catch (err) {
+        console.error("Error enviando primer DM:", err);
+      }
+      return;
+    }
+
+    // Caso 2: ya existe un hilo → usamos WS normal
+    if (activeThread?.id && isReady) {
+      sendMessage({
+        type: "message.send",
+        payload: {
+          thread_id: activeThread.id,
+          text: clean,
+        },
+      });
+    }
+  };
+
   return (
-    <div className="h-[calc(100dvh-4rem)] min-h-0 grid grid-cols-1 sm:grid-cols-[300px,1fr] border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden bg-white/70 dark:bg-zinc-950/70">
-      <ConversationsSidebar
-        loading={loadingThreads}
-        conversations={conversations}
-        activeId={activeThread?.id}
-        onSelect={(id) => {
-          const thread = conversations.find((c) => c.id === id);
-          setActiveThread(thread || null);
-        }}
-      />
-      <div className="flex flex-col min-h-0">
+    <div className="flex h-[calc(100dvh-3rem)] bg-white dark:bg-zinc-950">
+      {/* Sidebar con conversaciones y buscador de personas */}
+      <div className="w-72 border-r border-zinc-200 dark:border-zinc-800">
+        <ConversationsSidebar
+          conversations={conversations}
+          activeId={activeThread?.id || null}
+          onSelect={handleSelectThread}
+          onSelectUser={handleSelectUser}
+          loading={loadingThreads}
+        />
+      </div>
+
+      {/* Panel de chat */}
+      <div className="flex-1 flex flex-col">
         <ChatContainer
-          key={activeThread?.id || "none"}
           me={me}
           conversation={activeThread}
           initialMessages={mergedMessages}
-          onSendMessage={(text) => sendMessage(text)}
-          loading={loadingThreads || loadingMessages}
+          onSendMessage={handleSendMessage}
+          loading={loadingMessages}
           connectionReady={isReady}
         />
       </div>

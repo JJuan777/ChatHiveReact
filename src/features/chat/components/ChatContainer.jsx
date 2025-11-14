@@ -3,13 +3,12 @@ import React, { useEffect, useState } from "react";
 import ChatHeader from "./ChatHeader";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
-import { createMessage } from "../api/messages";
 
 export default function ChatContainer({
   me,
-  conversation,
+  conversation,             // {id, title, subtitle} o null (pendiente)
   initialMessages = [],
-  onSendMessage,
+  onSendMessage,             // (text) => maneja WS o creación del hilo
   loading,
   connectionReady,
 }) {
@@ -20,12 +19,13 @@ export default function ChatContainer({
   }, [initialMessages, conversation?.id]);
 
   const handleSend = async (text) => {
-    if (!text.trim() || !conversation) return;
+    if (!text.trim()) return;
 
+    // Optimista local (sirve tanto con hilo existente como pendiente)
     const tempId = crypto.randomUUID();
     const optimisticMsg = {
       id: tempId,
-      thread_id: conversation.id,
+      thread_id: conversation?.id || null,
       sender_id: String(me.id),
       text,
       created_at: new Date().toISOString(),
@@ -34,13 +34,10 @@ export default function ChatContainer({
     setMessages((prev) => [...prev, optimisticMsg]);
 
     try {
-      // 1) tiempo real
-      onSendMessage?.(text);
-      // 2) persistencia 
-      const saved = await createMessage(conversation.id, text, tempId);
-      setMessages((prev) => prev.map((m) => (m.id === tempId ? saved : m)));
+      await onSendMessage?.(text);
+      // Nota: si se creó hilo nuevo, el padre cambiará la key del componente
+      // y se recargará con initialMessages correctos (reemplazando optimista)
     } catch (err) {
-      console.error("Error enviando mensaje:", err);
       setMessages((prev) =>
         prev.map((m) => (m.id === tempId ? { ...m, error: true } : m))
       );
@@ -54,7 +51,6 @@ export default function ChatContainer({
         subtitle={conversation ? conversation.subtitle || "" : ""}
         connectionReady={connectionReady}
       />
-
       <div className="flex-1 min-h-0 flex flex-col">
         <MessageList
           key={conversation?.id || "no-thread"}
@@ -62,10 +58,9 @@ export default function ChatContainer({
           messages={messages}
         />
       </div>
-
       <MessageInput
         onSend={handleSend}
-        disabled={!conversation || loading || !connectionReady}
+        disabled={loading /* para DM nuevo no bloqueamos; el padre resuelve */}
       />
     </section>
   );
