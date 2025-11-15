@@ -12,6 +12,30 @@ function initialsFrom(text = "?") {
 }
 
 function ThreadItem({ item, active, onClick }) {
+  // Título del hilo: title, o peer.display, o nombre del peer, o fallback
+  const title =
+    item.title ||
+    (item.peer
+      ? item.peer.display ||
+        [item.peer.first_name, item.peer.last_name].filter(Boolean).join(" ")
+      : "Conversación");
+
+  // last_message viene del backend (DRF) con la opción 1 (MessageSerializer con sender)
+  const last = typeof item.last_message === "object" ? item.last_message : null;
+
+  const senderName =
+    last?.sender?.display ||
+    [last?.sender?.first_name, last?.sender?.last_name].filter(Boolean).join(" ");
+
+  let lastLine = "—";
+  if (last) {
+    const text = last.text || "";
+    lastLine = `${senderName ? senderName + ": " : ""}${text}`;
+  } else if (typeof item.lastMessage === "string") {
+    // compat: por si en algún punto sigues mandando un string plano
+    lastLine = item.lastMessage || "—";
+  }
+
   return (
     <li
       onClick={onClick}
@@ -23,12 +47,12 @@ function ThreadItem({ item, active, onClick }) {
     >
       <div className="flex items-start gap-2">
         <div className="shrink-0 w-9 h-9 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 grid place-items-center font-semibold">
-          {initialsFrom(item.title)}
+          {initialsFrom(title)}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <div className="text-sm font-medium text-zinc-800 dark:text-zinc-100 truncate">
-              {item.title}
+              {title}
             </div>
             {item.unread_count > 0 && (
               <span className="ml-auto inline-flex items-center px-2 py-0.5 rounded-full text-[10px] bg-indigo-500 text-white">
@@ -37,7 +61,7 @@ function ThreadItem({ item, active, onClick }) {
             )}
           </div>
           <div className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
-            {item.lastMessage || "—"}
+            {lastLine}
           </div>
         </div>
       </div>
@@ -75,7 +99,7 @@ function SuggestItem({ u, active, onClick }) {
 
 /**
  * Props:
- * - conversations: []        -> hilos del usuario
+ * - conversations: []        -> hilos del usuario (respuesta directa del API DRF)
  * - activeId: string         -> id del hilo activo
  * - onSelect: (threadId)     -> selecciona un hilo existente
  * - onSelectUser: (userObj)  -> selecciona un usuario (sólo resolve, NO crea)
@@ -100,7 +124,10 @@ export default function ConversationsSidebar({
     const run = async () => {
       const txt = q.trim();
       if (txt.length < 2) {
-        if (alive) { setSuggest([]); setActiveIdx(-1); }
+        if (alive) {
+          setSuggest([]);
+          setActiveIdx(-1);
+        }
         return;
       }
       setLoadingSuggest(true);
@@ -116,7 +143,10 @@ export default function ConversationsSidebar({
       }
     };
     const t = setTimeout(run, 200);
-    return () => { alive = false; clearTimeout(t); };
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
   }, [q]);
 
   // Filtrado local de conversaciones cuando no hay búsqueda real (>=2)
@@ -134,7 +164,9 @@ export default function ConversationsSidebar({
   function onKeyDown(e) {
     if (!showingSuggest || loadingSuggest || suggest.length === 0) {
       if (e.key === "Escape") {
-        setQ(""); setSuggest([]); setActiveIdx(-1);
+        setQ("");
+        setSuggest([]);
+        setActiveIdx(-1);
       }
       return;
     }
@@ -153,7 +185,9 @@ export default function ConversationsSidebar({
         setActiveIdx(-1);
       }
     } else if (e.key === "Escape") {
-      setQ(""); setSuggest([]); setActiveIdx(-1);
+      setQ("");
+      setSuggest([]);
+      setActiveIdx(-1);
     }
   }
 
@@ -179,7 +213,12 @@ export default function ConversationsSidebar({
           />
           {!!q && (
             <button
-              onClick={() => { setQ(""); setSuggest([]); setActiveIdx(-1); inputRef.current?.focus(); }}
+              onClick={() => {
+                setQ("");
+                setSuggest([]);
+                setActiveIdx(-1);
+                inputRef.current?.focus();
+              }}
               className="absolute right-2 top-2 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
               title="Limpiar"
             >
@@ -193,7 +232,9 @@ export default function ConversationsSidebar({
       <div className="flex-1 overflow-y-auto">
         {showingSuggest ? (
           <div className="pb-2">
-            <div className="px-3 py-1.5 text-[11px] uppercase tracking-wide text-zinc-500">Personas</div>
+            <div className="px-3 py-1.5 text-[11px] uppercase tracking-wide text-zinc-500">
+              Personas
+            </div>
             {loadingSuggest ? (
               <div className="px-3 py-2 text-sm text-zinc-500">Buscando…</div>
             ) : suggest.length ? (
@@ -247,7 +288,9 @@ export default function ConversationsSidebar({
               </ul>
             ) : (
               <div className="h-full grid place-items-center p-6 text-center text-sm text-zinc-500">
-                {q ? "No hay coincidencias." : "No tienes conversaciones aún. Empieza escribiendo un nombre arriba 👆"}
+                {q
+                  ? "No hay coincidencias."
+                  : "No tienes conversaciones aún. Empieza escribiendo un nombre arriba 👆"}
               </div>
             )}
           </>
