@@ -118,13 +118,53 @@ export default function ChatContainer({
     return conversation ? conversation.subtitle || "" : "";
   }, [conversation, typingUsers]);
 
+  // 🧠 Detectar el "otro usuario" para mostrar su avatar en el header
+  const otherUser = useMemo(() => {
+    if (!conversation) return null;
+
+    // DIRECT: viene en .peer
+    if (conversation.kind === "DIRECT" && conversation.peer) {
+      return conversation.peer;
+    }
+
+    // GRUPOS: tomar el primer miembro que no soy yo
+    const members =
+      conversation.members ||
+      conversation.participants ||
+      conversation.users ||
+      [];
+
+    return members.find((u) => String(u.id) !== meId) || null;
+  }, [conversation, meId]);
+
+  // Iniciales para el avatar cuando no hay imagen
+  const otherInitials = useMemo(() => {
+    if (!otherUser) return "?";
+
+    if (otherUser.display && otherUser.display.trim()) {
+      const parts = otherUser.display.trim().split(" ");
+      if (parts.length === 1) {
+        return parts[0].slice(0, 2).toUpperCase();
+      }
+      return (parts[0][0] + (parts[1]?.[0] || "")).toUpperCase();
+    }
+
+    const fn = otherUser.first_name || "";
+    const ln = otherUser.last_name || "";
+    if (!fn && !ln) return "?";
+    return (fn[0] || "" + ln[0] || "").toUpperCase() || "?";
+  }, [otherUser]);
+
   return (
     <section className="flex flex-1 flex-col min-h-0 bg-white dark:bg-zinc-950">
       <ChatHeader
         title={headerTitle}
         subtitle={headerSubtitle}
         connectionReady={connectionReady}
+        avatarUrl={otherUser?.avatar}
+        initials={otherInitials}
       />
+
       <div className="flex-1 min-h-0 flex flex-col">
         <MessageList
           key={conversation?.id || "no-thread"}
@@ -135,6 +175,7 @@ export default function ChatContainer({
           loadingMore={loadingMoreMessages}
         />
       </div>
+
       <MessageInput
         onSend={handleSend}
         disabled={loading || !conversation?.id}
