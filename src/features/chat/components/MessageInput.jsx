@@ -2,16 +2,18 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Send, Paperclip, Smile } from "lucide-react";
 
-export default function MessageInput({ onSend, disabled }) {
+export default function MessageInput({ onSend, disabled, onTypingStart, onTypingStop }) {
   const [text, setText] = useState("");
   const [isComposing, setIsComposing] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const taRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
 
   const resize = () => {
     const el = taRef.current;
     if (!el) return;
     el.style.height = "0px";
-    const next = Math.max(38, Math.min(el.scrollHeight, 192)); 
+    const next = Math.max(38, Math.min(el.scrollHeight, 192));
     el.style.height = next + "px";
   };
 
@@ -25,11 +27,43 @@ export default function MessageInput({ onSend, disabled }) {
     return () => ro.disconnect();
   }, []);
 
+  const stopTypingInternal = () => {
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    if (isTyping) {
+      onTypingStop?.();
+      setIsTyping(false);
+    }
+  };
+
+  const scheduleStopTyping = () => {
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    typingTimeoutRef.current = setTimeout(() => {
+      onTypingStop?.();
+      setIsTyping(false);
+      typingTimeoutRef.current = null;
+    }, 2000); // 2s sin escribir -> stop
+  };
+
+  const notifyTyping = () => {
+    if (disabled) return;
+    if (!isTyping) {
+      setIsTyping(true);
+      onTypingStart?.();
+    }
+    scheduleStopTyping();
+  };
+
   const submit = () => {
     const value = text.trim();
     if (!value || disabled) return;
     onSend?.(value);
     setText("");
+    stopTypingInternal();
     requestAnimationFrame(resize);
   };
 
@@ -40,6 +74,19 @@ export default function MessageInput({ onSend, disabled }) {
       submit();
     }
   };
+
+  const onChange = (e) => {
+    setText(e.target.value);
+    notifyTyping();
+  };
+
+  useEffect(() => {
+    return () => {
+      // al desmontar, avisamos que dejamos de escribir
+      stopTypingInternal();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="border-t border-zinc-200 dark:border-zinc-800 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] bg-white/60 dark:bg-zinc-950/60 backdrop-blur">
@@ -58,12 +105,16 @@ export default function MessageInput({ onSend, disabled }) {
             <textarea
               ref={taRef}
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={onChange}
               onKeyDown={onKeyDown}
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={() => setIsComposing(false)}
               rows={1}
-              placeholder={disabled ? "Selecciona una conversación..." : "Escribe un mensaje..."}
+              placeholder={
+                disabled
+                  ? "Selecciona una conversación..."
+                  : "Escribe un mensaje..."
+              }
               disabled={disabled}
               className="w-full min-h-[38px] max-h-48 overflow-auto resize-none px-3 py-2 text-sm leading-5 bg-transparent focus:outline-none placeholder:text-zinc-400"
             />

@@ -2,8 +2,9 @@
 import { useEffect, useRef, useState } from "react";
 import { createWS } from "../../../app/lib/ws";
 
-export function useChatSocket({ threadId, userId }) {
+export function useChatSocket({ threadId, userId, token }) {
   const [messages, setMessages] = useState([]);
+  const [typingUsers, setTypingUsers] = useState([]); // usuarios que están escribiendo en este hilo
   const [isReady, setIsReady] = useState(false);
   const wsRef = useRef(null);
 
@@ -24,10 +25,31 @@ export function useChatSocket({ threadId, userId }) {
         // console.log("💬 WS msg:", msg);
         if (msg?.type === "message.created") {
           setMessages((prev) => [...prev, msg.payload.message]);
+        } else if (msg?.type === "typing") {
+          const payload = msg.payload || {};
+          const { thread_id, user_id, status } = payload;
+
+          if (!thread_id || !user_id) return;
+          // Si el evento es de otro hilo, lo ignoramos
+          if (threadId && thread_id !== threadId) return;
+          // Ignoramos nuestro propio typing
+          if (String(user_id) === String(userId)) return;
+
+          setTypingUsers((prev) => {
+            const set = new Set(prev);
+            if (status === "start") {
+              set.add(String(user_id));
+            } else if (status === "stop") {
+              set.delete(String(user_id));
+            }
+            return Array.from(set);
+          });
         }
       },
       onClose: () => {
         setIsReady(false);
+        setMessages([]);
+        setTypingUsers([]);
       },
       onError: (e) => {
         console.error("🔴 WS error:", e);
@@ -38,12 +60,18 @@ export function useChatSocket({ threadId, userId }) {
       wsRef.current?.close();
       wsRef.current = null;
       setIsReady(false);
+      setMessages([]);
+      setTypingUsers([]);
     };
   }, []); // 👈 importante: SIN [threadId]
 
   // 2) Cuando cambie el hilo activo, mandar thread.join SI el WS está listo
   useEffect(() => {
     if (!threadId || !isReady || !wsRef.current) return;
+
+    // limpiamos mensajes y typing de otros hilos
+    setMessages([]);
+    setTypingUsers([]);
 
     wsRef.current.send({
       type: "thread.join",
@@ -58,7 +86,9 @@ export function useChatSocket({ threadId, userId }) {
       return;
     }
 
-    const cid = clientId || (globalThis.crypto?.randomUUID?.() ?? String(Date.now()));
+    const cid =
+      clientId ||
+      (globalThis.crypto?.randomUUID?.() ?? String(Date.now()));
 
     wsRef.current.send({
       type: "message.send",
@@ -71,5 +101,22 @@ export function useChatSocket({ threadId, userId }) {
     });
   };
 
-  return { messages, sendMessage, isReady };
+  // 4) Enviar eventos de typing
+  const startTyping = () => {
+    if (!isReady || !threadId || !wsRef.current) return;
+    wsRef.current.send({
+      type: "typing.start",
+      payload: { thread_id: threadId },
+    });
+  };
+
+  const stopTyping = () => {
+    if (!isReady || !threadId || !wsRef.current) return;
+    wsRef.current.send({
+      type: "typing.stop",
+      payload: { thread_id: threadId },
+    });
+  };
+
+  return { messages, sendMessage, isReady, typingUsers, startTyping, stopTyping };
 }

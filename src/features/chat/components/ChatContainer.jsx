@@ -3,7 +3,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import ChatHeader from "./ChatHeader";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
-import { createMessage } from "../api/messages";
 
 function displayFromUser(u) {
   if (!u) return "";
@@ -47,11 +46,17 @@ function buildTitle(conversation, meId) {
 
 export default function ChatContainer({
   me,
-  conversation,         // { id, title, peer, ... }
+  conversation, // { id, title, peer, kind, ... }
   initialMessages = [],
-  onSendMessage,         // viene de useChatSocket.sendMessage
+  onSendMessage, // viene de ChatPage (usa WS y/o REST)
   loading,
   connectionReady,
+  typingUsers = [], // array de user_ids que están escribiendo
+  onTypingStart,
+  onTypingStop,
+  hasMoreMessages = false,
+  onLoadMoreMessages,
+  loadingMoreMessages = false,
 }) {
   const [messages, setMessages] = useState(initialMessages);
   const meId = String(me?.id);
@@ -60,14 +65,15 @@ export default function ChatContainer({
     setMessages(initialMessages);
   }, [initialMessages, conversation?.id]);
 
-  const handleSend = async (text) => {
+  const handleSend = (text) => {
     if (!text.trim() || !conversation?.id) return;
 
     const threadId = conversation.id;
-    const clientId = crypto.randomUUID();
-    const tempId = clientId; // reutilizamos para vincular optimista vs real
+    const clientId =
+      globalThis.crypto?.randomUUID?.() ?? String(Date.now());
+    const tempId = clientId;
 
-    // 1) Mensaje optimista local
+    // 1) Mensaje optimista local (solo UI)
     const optimisticMsg = {
       id: tempId,
       thread_id: threadId,
@@ -86,26 +92,11 @@ export default function ChatContainer({
     };
     setMessages((prev) => [...prev, optimisticMsg]);
 
-    try {
-      // 2) WebSocket para tiempo real (si está listo)
-      onSendMessage?.(text, { clientId, threadIdOverride: threadId });
-
-      // 3) REST → GUARDA en backend
-      const real = await createMessage({ threadId, text, clientId });
-
-      // 4) Reemplazamos el optimista por el real que viene del backend
-      setMessages((prev) =>
-        prev.map((m) => (m.id === tempId ? { ...real, optimistic: false } : m)),
-      );
-    } catch (err) {
-      console.error("❌ Error al crear mensaje:", err);
-      // Marcamos el mensaje como fallido (opcionalmente podrías quitarlo)
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === tempId ? { ...m, error: true } : m,
-        ),
-      );
-    }
+    // 2) Delegamos el envío al padre (ChatPage) → él usa SOLO WS
+    onSendMessage?.(text);
+    // ❌ IMPORTANTE: ya NO llamamos createMessage aquí.
+    // El mensaje real llegará por WS (liveMessages) y
+    // mergedMessages reemplazará este estado vía initialMessages.
   };
 
   const headerTitle = useMemo(
@@ -113,7 +104,19 @@ export default function ChatContainer({
     [conversation, meId],
   );
 
-  const headerSubtitle = conversation ? conversation.subtitle || "" : "";
+  const headerSubtitle = useMemo(() => {
+    if (!conversation) return "";
+    // Si alguien (que no soy yo) está escribiendo
+    if (typingUsers && typingUsers.length > 0) {
+      if (conversation.kind === "DIRECT" && conversation.peer) {
+        const name = displayFromUser(conversation.peer);
+        return name ? `${name} está escribiendo…` : "Escribiendo…";
+      }
+      return "Escribiendo…";
+    }
+    // Subtítulo normal
+    return conversation ? conversation.subtitle || "" : "";
+  }, [conversation, typingUsers]);
 
   return (
     <section className="flex flex-1 flex-col min-h-0 bg-white dark:bg-zinc-950">
@@ -127,11 +130,16 @@ export default function ChatContainer({
           key={conversation?.id || "no-thread"}
           meId={meId}
           messages={messages}
+          hasMore={hasMoreMessages}
+          onLoadMore={onLoadMoreMessages}
+          loadingMore={loadingMoreMessages}
         />
       </div>
       <MessageInput
         onSend={handleSend}
         disabled={loading || !conversation?.id}
+        onTypingStart={onTypingStart}
+        onTypingStop={onTypingStop}
       />
     </section>
   );

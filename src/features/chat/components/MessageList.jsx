@@ -56,7 +56,13 @@ function Bubble({ isMe, firstInGroup, lastInGroup, children, timestamp }) {
   );
 }
 
-export default function MessageList({ messages = [], meId }) {
+export default function MessageList({
+  messages = [],
+  meId,
+  hasMore = false,
+  onLoadMore,
+  loadingMore = false,
+}) {
   const viewRef = useRef(null);
   const [atBottom, setAtBottom] = useState(true);
 
@@ -80,7 +86,7 @@ export default function MessageList({ messages = [], meId }) {
     }
     return result.sort(
       (a, b) =>
-        new Date(a.items[0].created_at) - new Date(b.items[0].created_at)
+        new Date(a.items[0].created_at) - new Date(b.items[0].created_at),
     );
   }, [messages]);
 
@@ -109,6 +115,20 @@ export default function MessageList({ messages = [], meId }) {
         ref={viewRef}
         className="scroll-smoothy flex-1 min-h-0 overflow-y-auto p-4 space-y-3 bg-white dark:bg-zinc-950 [mask-image:linear-gradient(to_bottom,transparent_0,black_16px,black_calc(100%-16px),transparent_100%)]"
       >
+        {/* Botón "ver más" arriba */}
+        {hasMore && (
+          <div className="sticky top-0 z-20 mb-2 flex justify-center">
+            <button
+              type="button"
+              onClick={onLoadMore}
+              disabled={loadingMore}
+              className="px-3 py-1.5 text-xs rounded-full bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 shadow-sm border border-zinc-800 dark:border-zinc-300 disabled:opacity-60"
+            >
+              {loadingMore ? "Cargando..." : "Ver mensajes anteriores"}
+            </button>
+          </div>
+        )}
+
         {chunks.length === 0 ? (
           <div className="h-full grid place-items-center text-sm text-zinc-500">
             No hay mensajes todavía.
@@ -140,6 +160,7 @@ export default function MessageList({ messages = [], meId }) {
           ))
         )}
 
+        {/* Botón "ver últimos" abajo */}
         {!atBottom && (
           <div className="sticky bottom-4 flex justify-center">
             <button
