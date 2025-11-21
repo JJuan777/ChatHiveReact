@@ -1,13 +1,24 @@
 // src/features/chat/components/MessageInput.jsx
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Send, Paperclip, Smile } from "lucide-react";
+import EmojiPicker from "emoji-picker-react";
 
-export default function MessageInput({ onSend, disabled, onTypingStart, onTypingStop }) {
+export default function MessageInput({
+  onSend,
+  disabled,
+  onTypingStart,
+  onTypingStop,
+}) {
   const [text, setText] = useState("");
   const [isComposing, setIsComposing] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
   const taRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+
+  // 👇 NUEVO ref para detectar clics fuera del picker
+  const emojiRef = useRef(null);
 
   const resize = () => {
     const el = taRef.current;
@@ -21,7 +32,6 @@ export default function MessageInput({ onSend, disabled, onTypingStart, onTyping
   useLayoutEffect(resize, [text]);
 
   useEffect(() => {
-    //(rotación móvil)
     const ro = new ResizeObserver(resize);
     if (taRef.current) ro.observe(taRef.current);
     return () => ro.disconnect();
@@ -46,7 +56,7 @@ export default function MessageInput({ onSend, disabled, onTypingStart, onTyping
       onTypingStop?.();
       setIsTyping(false);
       typingTimeoutRef.current = null;
-    }, 2000); // 2s sin escribir -> stop
+    }, 2000);
   };
 
   const notifyTyping = () => {
@@ -80,13 +90,45 @@ export default function MessageInput({ onSend, disabled, onTypingStart, onTyping
     notifyTyping();
   };
 
+  const handleEmojiClick = (emojiData) => {
+    setText((prev) => prev + emojiData.emoji);
+    notifyTyping();
+
+    requestAnimationFrame(() => {
+      if (taRef.current) {
+        taRef.current.focus();
+        resize();
+      }
+    });
+  };
+
   useEffect(() => {
     return () => {
-      // al desmontar, avisamos que dejamos de escribir
       stopTypingInternal();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (disabled && showEmojiPicker) {
+      setShowEmojiPicker(false);
+    }
+  }, [disabled, showEmojiPicker]);
+
+  // 👇 NUEVO: Cerrar emoji picker al hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        emojiRef.current &&
+        !emojiRef.current.contains(event.target) &&
+        showEmojiPicker
+      ) {
+        setShowEmojiPicker(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showEmojiPicker]);
 
   return (
     <div className="border-t border-zinc-200 dark:border-zinc-800 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] bg-white/60 dark:bg-zinc-950/60 backdrop-blur">
@@ -121,14 +163,29 @@ export default function MessageInput({ onSend, disabled, onTypingStart, onTyping
           </div>
         </div>
 
-        <button
-          type="button"
-          className="p-2 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 disabled:opacity-50 self-end"
-          title="Emojis"
-          disabled={disabled}
-        >
-          <Smile size={18} />
-        </button>
+        {/* Botón + contenedor (emojiRef) */}
+        <div className="relative self-end" ref={emojiRef}>
+          <button
+            type="button"
+            className="p-2 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 disabled:opacity-50"
+            title="Emojis"
+            disabled={disabled}
+            onClick={() => setShowEmojiPicker((v) => !v)}
+          >
+            <Smile size={18} />
+          </button>
+
+          {showEmojiPicker && !disabled && (
+            <div className="absolute bottom-10 right-0 z-50 shadow-lg rounded-2xl overflow-hidden border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900">
+              <EmojiPicker
+                onEmojiClick={handleEmojiClick}
+                theme="auto"
+                width={320}
+                height={360}
+              />
+            </div>
+          )}
+        </div>
 
         <button
           type="button"

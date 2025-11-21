@@ -10,6 +10,32 @@ function timeLabel(iso) {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+/* ─────────────────────────────
+   Helpers para detectar emojis
+   ───────────────────────────── */
+
+// ¿Es solo emojis (sin texto)?
+function isOnlyEmoji(text) {
+  if (!text) return false;
+  const trimmed = text.trim();
+
+  // Regex general para emojis (requiere soporte de Unicode property escapes)
+  const emojiRegex =
+    /^(?:\p{Extended_Pictographic}|\p{Emoji_Component}|\p{Emoji_Presentation}|\p{Emoji}\uFE0F|\s)+$/u;
+
+  // Debe contener al menos un emoji
+  const hasEmoji = /\p{Extended_Pictographic}/u.test(trimmed);
+
+  return hasEmoji && emojiRegex.test(trimmed);
+}
+
+// Contar emojis (para tamaño dinámico)
+function countEmojis(text) {
+  if (!text) return 0;
+  const emojiRegex = /\p{Extended_Pictographic}/gu;
+  return (text.match(emojiRegex) || []).length;
+}
+
 function DateSeparator({ label }) {
   return (
     <div className="sticky top-2 z-10 mb-2 flex items-center justify-center">
@@ -20,9 +46,55 @@ function DateSeparator({ label }) {
   );
 }
 
-function Bubble({ isMe, firstInGroup, lastInGroup, children, timestamp }) {
+function Bubble({ isMe, firstInGroup, lastInGroup, children, timestamp, error }) {
+  const text = children ?? "";
+
+  const onlyEmoji = isOnlyEmoji(text);
+  const emojiCount = countEmojis(text);
+
+  /* ─────────────────────────────
+     Caso especial: SOLO EMOJIS
+     ───────────────────────────── */
+  if (onlyEmoji) {
+    // Tamaño según cantidad de emojis
+    let emojiSizeClass = "text-4xl";
+    if (emojiCount === 1) emojiSizeClass = "text-6xl";
+    else if (emojiCount <= 3) emojiSizeClass = "text-5xl";
+
+    return (
+      <div className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+        <div className="px-1 py-1">
+          <div
+            className={`inline-block ${emojiSizeClass} leading-tight select-text`}
+          >
+            {text}
+          </div>
+
+          {/* Hora debajo, discreta */}
+          <div
+            className={`mt-1 text-[10px] text-right opacity-70 ${
+              isMe ? "text-zinc-400" : "text-zinc-500"
+            }`}
+          >
+            {timestamp}
+          </div>
+
+          {error && (
+            <div className="mt-0.5 text-[10px] text-red-500 text-right">
+              Error al enviar
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  /* ─────────────────────────────
+     Caso normal: burbuja de texto
+     ───────────────────────────── */
+
   const base =
-    "max-w-[72%] px-3 py-2 text-sm rounded-2xl transition-colors";
+    "max-w-[72%] px-3 py-2 text-sm rounded-2xl transition-colors break-words";
   const me = isMe
     ? "bg-indigo-500 text-white"
     : "bg-zinc-50 dark:bg-zinc-900/70 text-zinc-900 dark:text-zinc-100 border border-zinc-200/70 dark:border-zinc-800";
@@ -43,7 +115,14 @@ function Bubble({ isMe, firstInGroup, lastInGroup, children, timestamp }) {
   return (
     <div className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
       <div className={`${base} ${me} ${radius}`}>
-        {children}
+        <div>{text}</div>
+
+        {error && (
+          <div className="mt-1 text-[10px] text-red-300 dark:text-red-400">
+            Error al enviar
+          </div>
+        )}
+
         <div
           className={`mt-1 text-[10px] opacity-70 ${
             isMe ? "text-white/80" : "text-zinc-500"
@@ -146,13 +225,9 @@ export default function MessageList({
                     firstInGroup={m.firstInGroup}
                     lastInGroup={m.lastInGroup}
                     timestamp={timeLabel(m.created_at)}
+                    error={m.error}
                   >
                     {m.text}
-                    {m.error && (
-                      <div className="mt-1 text-[10px] text-red-500">
-                        Error al enviar
-                      </div>
-                    )}
                   </Bubble>
                 );
               })}
