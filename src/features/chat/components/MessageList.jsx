@@ -1,5 +1,6 @@
 // src/features/chat/components/MessageList.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Trash2, Edit3 } from "lucide-react"; // ⬅️ Agregamos icono para "Editado"
 
 function dayKey(iso) {
   const d = new Date(iso);
@@ -19,17 +20,13 @@ function isOnlyEmoji(text) {
   if (!text) return false;
   const trimmed = text.trim();
 
-  // Regex general para emojis (requiere soporte de Unicode property escapes)
   const emojiRegex =
     /^(?:\p{Extended_Pictographic}|\p{Emoji_Component}|\p{Emoji_Presentation}|\p{Emoji}\uFE0F|\s)+$/u;
-
-  // Debe contener al menos un emoji
   const hasEmoji = /\p{Extended_Pictographic}/u.test(trimmed);
 
   return hasEmoji && emojiRegex.test(trimmed);
 }
 
-// Contar emojis (para tamaño dinámico)
 function countEmojis(text) {
   if (!text) return 0;
   const emojiRegex = /\p{Extended_Pictographic}/gu;
@@ -46,37 +43,70 @@ function DateSeparator({ label }) {
   );
 }
 
-function Bubble({ isMe, firstInGroup, lastInGroup, children, timestamp, error }) {
+function Bubble({
+  isMe,
+  firstInGroup,
+  lastInGroup,
+  children,
+  timestamp,
+  error,
+  message,
+  onEdit,
+  onDelete,
+}) {
   const text = children ?? "";
+
+  // 🔎 Detectar si está eliminado (flag local o del backend)
+  const isDeleted = message?.deleted || Boolean(message?.deleted_at);
+
+  // ───────────────────────
+  // Caso: MENSAJE ELIMINADO
+  // ───────────────────────
+  if (isDeleted) {
+    return (
+      <div className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+        <div className="max-w-[72%] px-3 py-1.5 text-xs rounded-2xl bg-zinc-100 dark:bg-zinc-900/70 text-zinc-500 dark:text-zinc-400 italic flex items-center gap-1 border border-dashed border-zinc-300 dark:border-zinc-700">
+          <Trash2 className="w-3.5 h-3.5" />
+          <span>Mensaje eliminado</span>
+        </div>
+      </div>
+    );
+  }
 
   const onlyEmoji = isOnlyEmoji(text);
   const emojiCount = countEmojis(text);
+  const isEdited = Boolean(message?.edited_at); // ⬅️ Flag local
 
-  /* ─────────────────────────────
-     Caso especial: SOLO EMOJIS
-     ───────────────────────────── */
+  // ─────────────────────────────
+  // Caso especial: SOLO EMOJIS
+  // ─────────────────────────────
   if (onlyEmoji) {
-    // Tamaño según cantidad de emojis
     let emojiSizeClass = "text-4xl";
     if (emojiCount === 1) emojiSizeClass = "text-6xl";
     else if (emojiCount <= 3) emojiSizeClass = "text-5xl";
 
     return (
-      <div className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-        <div className="px-1 py-1">
+      <div className={`group flex ${isMe ? "justify-end" : "justify-start"}`}>
+        <div className="relative px-1 py-1">
           <div
             className={`inline-block ${emojiSizeClass} leading-tight select-text`}
           >
             {text}
           </div>
 
-          {/* Hora debajo, discreta */}
+          {/* 🕒 Hora + "Editado" para mensajes solo emoji */}
           <div
-            className={`mt-1 text-[10px] text-right opacity-70 ${
-              isMe ? "text-zinc-400" : "text-zinc-500"
+            className={`mt-1 flex items-center gap-2 text-[10px] opacity-70 ${
+              isMe ? "justify-end text-zinc-400" : "justify-start text-zinc-500"
             }`}
           >
-            {timestamp}
+            <span>{timestamp}</span>
+            {isEdited && (
+              <span className="inline-flex items-center gap-0.5 opacity-80">
+                <Edit3 className="w-3 h-3" />
+                <span>Editado</span>
+              </span>
+            )}
           </div>
 
           {error && (
@@ -84,15 +114,34 @@ function Bubble({ isMe, firstInGroup, lastInGroup, children, timestamp, error })
               Error al enviar
             </div>
           )}
+
+          {isMe && (
+            <div className="absolute -top-2 right-0 translate-y-[-50%] opacity-0 group-hover:opacity-100 transition-opacity text-[10px] bg-zinc-900 text-zinc-100 dark:bg-zinc-800 rounded-full px-2 py-0.5 shadow-lg border border-zinc-700 flex items-center gap-1">
+              <button
+                type="button"
+                className="hover:text-indigo-300"
+                onClick={() => onEdit?.(message)}
+              >
+                Editar
+              </button>
+              <span className="text-zinc-600">·</span>
+              <button
+                type="button"
+                className="hover:text-red-300"
+                onClick={() => onDelete?.(message)}
+              >
+                Eliminar
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
-  /* ─────────────────────────────
-     Caso normal: burbuja de texto
-     ───────────────────────────── */
-
+  // ─────────────────────────────
+  // Caso normal: burbuja de texto
+  // ─────────────────────────────
   const base =
     "max-w-[72%] px-3 py-2 text-sm rounded-2xl transition-colors break-words";
   const me = isMe
@@ -113,8 +162,8 @@ function Bubble({ isMe, firstInGroup, lastInGroup, children, timestamp, error })
   ].join(" ");
 
   return (
-    <div className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-      <div className={`${base} ${me} ${radius}`}>
+    <div className={`group flex ${isMe ? "justify-end" : "justify-start"}`}>
+      <div className={`relative ${base} ${me} ${radius}`}>
         <div>{text}</div>
 
         {error && (
@@ -123,13 +172,40 @@ function Bubble({ isMe, firstInGroup, lastInGroup, children, timestamp, error })
           </div>
         )}
 
+        {/* 🕒 Hora + "Editado" debajo del mensaje */}
         <div
-          className={`mt-1 text-[10px] opacity-70 ${
-            isMe ? "text-white/80" : "text-zinc-500"
+          className={`mt-1 flex items-center gap-2 text-[10px] opacity-70 ${
+            isMe ? "justify-end text-white/80" : "justify-start text-zinc-500"
           }`}
         >
-          {timestamp}
+          <span>{timestamp}</span>
+          {isEdited && (
+            <span className="inline-flex items-center gap-0.5 opacity-80">
+              <Edit3 className="w-3 h-3" />
+              <span>Editado</span>
+            </span>
+          )}
         </div>
+
+        {isMe && (
+          <div className="absolute -top-2 right-2 translate-y-[-50%] opacity-0 group-hover:opacity-100 transition-opacity text-[10px] bg-zinc-900 text-zinc-100 dark:bg-zinc-800 rounded-full px-2 py-0.5 shadow-lg border border-zinc-700 flex items-center gap-1">
+            <button
+              type="button"
+              className="hover:text-indigo-300"
+              onClick={() => onEdit?.(message)}
+            >
+              Editar
+            </button>
+            <span className="text-zinc-600">·</span>
+            <button
+              type="button"
+              className="hover:text-red-300"
+              onClick={() => onDelete?.(message)}
+            >
+              Eliminar
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -141,6 +217,8 @@ export default function MessageList({
   hasMore = false,
   onLoadMore,
   loadingMore = false,
+  onEditMessage,
+  onDeleteMessage,
 }) {
   const viewRef = useRef(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -226,6 +304,9 @@ export default function MessageList({
                     lastInGroup={m.lastInGroup}
                     timestamp={timeLabel(m.created_at)}
                     error={m.error}
+                    message={m}
+                    onEdit={onEditMessage}
+                    onDelete={onDeleteMessage}
                   >
                     {m.text}
                   </Bubble>

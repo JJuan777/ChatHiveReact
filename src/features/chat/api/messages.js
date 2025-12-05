@@ -44,7 +44,6 @@ export async function fetchThreadMessages(
   };
 }
 
-
 /**
  * Crea un mensaje en el hilo por REST
  */
@@ -60,4 +59,27 @@ export async function createMessage({ threadId, text, clientId }) {
     payload,
   );
   return data;
+}
+
+/**
+ * 🔹 Editar mensaje (PATCH)
+ * PATCH /chat/threads/<threadId>/messages/<messageId>/
+ */
+export async function updateMessage({ threadId, messageId, text }) {
+  const { data } = await http.patch(
+    `/chat/threads/${threadId}/messages/${messageId}/`,
+    { text },
+  );
+  return data; // mensaje actualizado (por si quieres usar edited_at, etc.)
+}
+
+/**
+ * 🔹 Eliminar mensaje (DELETE)
+ * DELETE /chat/threads/<threadId>/messages/<messageId>/
+ */
+export async function deleteMessage({ threadId, messageId }) {
+  await http.delete(
+    `/chat/threads/${threadId}/messages/${messageId}/`,
+  );
+  // no devuelve body; si no hay error, asumimos OK
 }

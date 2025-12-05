@@ -3,6 +3,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import ChatHeader from "./ChatHeader";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
+import { updateMessage, deleteMessage } from "../api/messages";
+// ⬇️ Sonner
+import { toast } from "sonner";
+// ⬇️ Confirm personalizado con Sonner
+import { confirmToast } from "../../../utils/confirmToast";
 
 function displayFromUser(u) {
   if (!u) return "";
@@ -51,7 +56,7 @@ export default function ChatContainer({
   onSendMessage, // viene de ChatPage (usa WS y/o REST)
   loading,
   connectionReady,
-  typingUsers = [], // array de user_ids que están escribiendo
+  typingUsers = [],
   onTypingStart,
   onTypingStop,
   hasMoreMessages = false,
@@ -61,6 +66,7 @@ export default function ChatContainer({
   const [messages, setMessages] = useState(initialMessages);
   const meId = String(me?.id);
 
+  // Sincronizar mensajes cuando cambia el hilo o llegan nuevos desde el padre
   useEffect(() => {
     setMessages(initialMessages);
   }, [initialMessages, conversation?.id]);
@@ -73,7 +79,7 @@ export default function ChatContainer({
       globalThis.crypto?.randomUUID?.() ?? String(Date.now());
     const tempId = clientId;
 
-    // 1) Mensaje optimista local (solo UI)
+    // Mensaje optimista local
     const optimisticMsg = {
       id: tempId,
       thread_id: threadId,
@@ -92,11 +98,82 @@ export default function ChatContainer({
     };
     setMessages((prev) => [...prev, optimisticMsg]);
 
-    // 2) Delegamos el envío al padre (ChatPage) → él usa SOLO WS
     onSendMessage?.(text);
-    // ❌ IMPORTANTE: ya NO llamamos createMessage aquí.
-    // El mensaje real llegará por WS (liveMessages) y
-    // mergedMessages reemplazará este estado vía initialMessages.
+  };
+
+  // 🔹 Editar mensaje
+  const handleEditMessage = async (message) => {
+    if (!conversation?.id) return;
+    const threadId = conversation.id;
+
+    const currentText = message.text || "";
+    const nuevoTexto = window.prompt("Editar mensaje", currentText);
+    if (nuevoTexto === null) return;
+    const trimmed = nuevoTexto.trim();
+    if (!trimmed || trimmed === currentText.trim()) return;
+
+    // Optimista
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === message.id
+          ? { ...m, text: trimmed, edited_at: new Date().toISOString() }
+          : m,
+      ),
+    );
+
+    try {
+      await updateMessage({
+        threadId,
+        messageId: message.id,
+        text: trimmed,
+      });
+      toast.success("Mensaje editado");
+    } catch (err) {
+      console.error("Error al editar mensaje", err);
+      toast.error("No se pudo editar el mensaje");
+      // (Opcional) revertir el cambio optimista:
+      // setMessages(prev => prev.map(m => (m.id === message.id ? message : m)));
+    }
+  };
+
+  // 🔹 Eliminar mensaje (con confirm usando Sonner)
+  const handleDeleteMessage = async (message) => {
+    if (!conversation?.id) return;
+    const threadId = conversation.id;
+
+    // ⬇️ Reemplaza window.confirm
+    const ok = await confirmToast("¿Eliminar este mensaje?", {
+      actionText: "Eliminar",
+    });
+    if (!ok) return;
+
+    // Optimista: marcar como eliminado en el estado
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === message.id
+          ? {
+              ...m,
+              text: "",
+              deleted: true,
+              deleted_at: new Date().toISOString(),
+            }
+          : m,
+      ),
+    );
+
+    try {
+      await deleteMessage({
+        threadId,
+        messageId: message.id,
+      });
+      toast.success("Mensaje eliminado");
+    } catch (err) {
+      console.error("Error al eliminar mensaje", err);
+      toast.error("No se pudo eliminar el mensaje");
+
+      // (Opcional) revertir flag deleted:
+      // setMessages(prev => prev.map(m => (m.id === message.id ? message : m)));
+    }
   };
 
   const headerTitle = useMemo(
@@ -106,7 +183,6 @@ export default function ChatContainer({
 
   const headerSubtitle = useMemo(() => {
     if (!conversation) return "";
-    // Si alguien (que no soy yo) está escribiendo
     if (typingUsers && typingUsers.length > 0) {
       if (conversation.kind === "DIRECT" && conversation.peer) {
         const name = displayFromUser(conversation.peer);
@@ -114,30 +190,22 @@ export default function ChatContainer({
       }
       return "Escribiendo…";
     }
-    // Subtítulo normal
     return conversation ? conversation.subtitle || "" : "";
   }, [conversation, typingUsers]);
 
-  // 🧠 Detectar el "otro usuario" para mostrar su avatar en el header
   const otherUser = useMemo(() => {
     if (!conversation) return null;
-
-    // DIRECT: viene en .peer
     if (conversation.kind === "DIRECT" && conversation.peer) {
       return conversation.peer;
     }
-
-    // GRUPOS: tomar el primer miembro que no soy yo
     const members =
       conversation.members ||
       conversation.participants ||
       conversation.users ||
       [];
-
     return members.find((u) => String(u.id) !== meId) || null;
   }, [conversation, meId]);
 
-  // Iniciales para el avatar cuando no hay imagen
   const otherInitials = useMemo(() => {
     if (!otherUser) return "?";
 
@@ -173,6 +241,8 @@ export default function ChatContainer({
           hasMore={hasMoreMessages}
           onLoadMore={onLoadMoreMessages}
           loadingMore={loadingMoreMessages}
+          onEditMessage={handleEditMessage}
+          onDeleteMessage={handleDeleteMessage}
         />
       </div>
 
